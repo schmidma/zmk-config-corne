@@ -39,20 +39,20 @@
             //                    | GUI |     | SPC |   | ENT |     | ALT |
 
             bindings = <
-&none  &kp EN_A_UMLAUT           &kp AT     &kp HASH        &kp DOLLAR       &kp PERCENT    &kp CARET         &kp AMPERSAND         &kp ASTERISK           &none              &kp TILDE     &kp PIPE
-&none  &kp UNDERSCORE  &kp MINUS  &kp LEFT_BRACE  &kp RIGHT_BRACE  &kp PLUS       &kp LEFT_BRACKET  &kp LEFT_PARENTHESIS  &kp RIGHT_PARENTHESIS  &kp RIGHT_BRACKET  &kp COLON     &kp DOUBLE_QUOTES
-&none  &none           &none      &none           &kp EXCLAMATION  &none          &none             &kp GRAVE             &kp LESS_THAN          &kp GREATER_THAN   &kp QUESTION  &none
-                                  &none           &trans           &trans         &none             &none                 &none
+&trans  &kp EN_A_UMLAUT  &kp AT           &kp HASH        &kp DOLLAR       &kp PERCENT    &kp CARET         &kp AMPERSAND         &kp ASTERISK           &trans             &kp TILDE     &kp PIPE
+&trans  &kp UNDERSCORE   &kp MINUS        &kp LEFT_BRACE  &kp RIGHT_BRACE  &kp PLUS       &kp LEFT_BRACKET  &kp LEFT_PARENTHESIS  &kp RIGHT_PARENTHESIS  &kp RIGHT_BRACKET  &kp COLON     &kp DOUBLE_QUOTES
+&trans  &kp EN_O_UMLAUT  &kp EN_U_UMLAUT  &trans          &kp EXCLAMATION  &trans         &trans            &kp GRAVE             &kp LESS_THAN          &kp GREATER_THAN   &kp QUESTION  &trans
+                                          &trans          &trans           &trans         &trans            &trans                &trans
             >;
         };
 
         movement {
             display-name = "Movement";
             bindings = <
-&none  &none  &kp N7  &kp N8  &kp N9  &none     &kp HOME  &kp PAGE_UP    &none   &kp END    &none  &none
-&none  &none  &kp N4  &kp N5  &kp N6  &kp N0    &kp LEFT  &kp DOWN       &kp UP  &kp RIGHT  &none  &none
-&none  &none  &kp N1  &kp N2  &kp N3  &none     &none     &kp PAGE_DOWN  &none   &none      &none  &none
-                      &none   &trans  &trans    &none     &none          &none
+&trans  &trans  &kp N7  &kp N8  &kp N9  &trans    &kp HOME  &kp PAGE_UP    &trans  &kp END    &trans  &trans
+&trans  &trans  &kp N4  &kp N5  &kp N6  &kp N0    &kp LEFT  &kp DOWN       &kp UP  &kp RIGHT  &trans  &trans
+&trans  &trans  &kp N1  &kp N2  &kp N3  &trans    &trans    &kp PAGE_DOWN  &trans  &trans     &trans  &trans
+                        &trans  &trans  &trans    &trans    &trans         &trans
             >;
         };
     };
