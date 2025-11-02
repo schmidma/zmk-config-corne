@@ -39,7 +39,7 @@
             //                    | GUI |     | SPC |   | ENT |     | ALT |
 
             bindings = <
-&none  &EN_A_UMLAUT           &kp AT     &kp HASH        &kp DOLLAR       &kp PERCENT    &kp CARET         &kp AMPERSAND         &kp ASTERISK           &none              &kp TILDE     &kp PIPE
+&none  &kp EN_A_UMLAUT           &kp AT     &kp HASH        &kp DOLLAR       &kp PERCENT    &kp CARET         &kp AMPERSAND         &kp ASTERISK           &none              &kp TILDE     &kp PIPE
 &none  &kp UNDERSCORE  &kp MINUS  &kp LEFT_BRACE  &kp RIGHT_BRACE  &kp PLUS       &kp LEFT_BRACKET  &kp LEFT_PARENTHESIS  &kp RIGHT_PARENTHESIS  &kp RIGHT_BRACKET  &kp COLON     &kp DOUBLE_QUOTES
 &none  &none           &none      &none           &kp EXCLAMATION  &none          &none             &kp GRAVE             &kp LESS_THAN          &kp GREATER_THAN   &kp QUESTION  &none
                                   &none           &trans           &trans         &none             &none                 &none
