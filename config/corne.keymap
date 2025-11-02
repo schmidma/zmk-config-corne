@@ -6,7 +6,7 @@
 
 #include <behaviors.dtsi>
 #include <dt-bindings/zmk/keys.h>
-#include "keys_us_international.h"
+#include <locale/keys_us_international.h>
 
 / {
     keymap {
