@@ -9,6 +9,10 @@
     flavor = "tap-preferred";
 };
 
+&lt {
+    flavor = "hold-preferred";
+}
+
 / {
     keymap {
         compatible = "zmk,keymap";
