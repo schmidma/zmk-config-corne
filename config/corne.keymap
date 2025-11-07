@@ -11,7 +11,7 @@
 
 &lt {
     flavor = "hold-preferred";
-}
+};
 
 / {
     keymap {
