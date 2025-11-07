@@ -6,11 +6,11 @@
 
 &mt {
     tapping-term-ms = <200>;
-    flavor = "tap-preferred";
+    flavor = "balanced";
 };
 
 &lt {
-    flavor = "hold-preferred";
+    flavor = "balanced";
 };
 
 / {
