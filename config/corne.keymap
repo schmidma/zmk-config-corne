@@ -65,7 +65,8 @@
             >;
         };
 
-        Gaming {
+        gaming {
+            display-name = "Gaming";
             bindings = <
 &kp ESC  &trans     &kp Q  &kp W  &kp E  &kp R        &trans  &trans  &trans  &trans  &trans  &trans
 &kp TAB  &kp LSHFT  &kp A  &kp S  &kp D  &kp F        &trans  &trans  &trans  &trans  &trans  &trans
