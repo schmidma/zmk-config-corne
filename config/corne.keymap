@@ -18,7 +18,7 @@
         colemak {
             display-name = "Colemak";
             bindings = <
-&kp TAB    &kp Q  &kp W  &kp F         &kp P       &kp B                  &kp J        &kp L  &kp U      &kp Y    &kp SEMI  &kp BSLH
+&kp TAB    &kp Q  &kp W  &kp F         &kp P       &kp B                  &kp J        &kp L  &kp U      &kp Y    &kp SEMI  &kp UNDERSCORE
 &lt 3 ESC  &kp A  &kp R  &kp S         &kp T       &kp G                  &kp M        &kp N  &kp E      &kp I    &kp O     &kp SQT
 &kp LGUI   &kp Z  &kp X  &kp C         &kp D       &kp V                  &kp K        &kp H  &kp COMMA  &kp DOT  &kp FSLH  &kp RET
                          &kp LEFT_ALT  &kp LSHIFT  &mt LCTRL BACKSPACE    &lt 2 SPACE  &mo 1  &mo 4
@@ -29,7 +29,7 @@
             display-name = "Symbols";
             bindings = <
 &trans  &kp EN_A_UMLAUT  &kp AT           &kp HASH        &kp DOLLAR       &kp PERCENT    &kp CARET         &kp AMPERSAND         &kp ASTERISK           &kp TILDE          &kp PIPE      &trans
-&trans  &kp UNDERSCORE   &kp MINUS        &kp LEFT_BRACE  &kp RIGHT_BRACE  &kp PLUS       &kp LEFT_BRACKET  &kp LEFT_PARENTHESIS  &kp RIGHT_PARENTHESIS  &kp RIGHT_BRACKET  &kp COLON     &kp DOUBLE_QUOTES
+&trans  &kp BACKSLASH    &kp MINUS        &kp LEFT_BRACE  &kp RIGHT_BRACE  &kp PLUS       &kp LEFT_BRACKET  &kp LEFT_PARENTHESIS  &kp RIGHT_PARENTHESIS  &kp RIGHT_BRACKET  &kp COLON     &kp DOUBLE_QUOTES
 &trans  &kp EN_O_UMLAUT  &kp EN_U_UMLAUT  &kp EQUAL       &kp EXCLAMATION  &kp EN_SZ      &kp EN_EURO       &kp GRAVE             &kp LESS_THAN          &kp GREATER_THAN   &kp QUESTION  &trans
                                           &trans          &trans           &trans         &trans            &trans                &trans
             >;
