@@ -4,6 +4,9 @@
 #include <dt-bindings/zmk/keys.h>
 #include <dt-bindings/zmk/pointing.h>
 
+// Linux XKB maps F20 to XF86AudioMicMute.
+#define MIC_MUTE F20
+
 &mt {
     tapping-term-ms = <200>;
     flavor = "balanced";
@@ -60,7 +63,7 @@
             bindings = <
 &none  &none        &kp C_BRIGHTNESS_DEC  &bt BT_PRV    &kp C_BRIGHTNESS_INC  &bt BT_CLR    &none  &kp C_VOLUME_DOWN  &kp C_MUTE        &kp C_VOLUME_UP  &none        &bt BT_CLR
 &none  &none        &bt BT_SEL 0          &bt BT_SEL 1  &bt BT_SEL 2          &none         &none  &kp C_PREVIOUS     &kp C_PLAY_PAUSE  &kp C_NEXT       &none        &none
-&none  &bootloader  &sys_reset            &bt BT_NXT    &none                 &none         &none  &none              &none             &sys_reset       &bootloader  &none
+&none  &bootloader  &sys_reset            &bt BT_NXT    &none                 &none         &none  &kp LG(LS(B))      &kp MIC_MUTE      &sys_reset       &bootloader  &none
                                           &none         &none                 &none         &none  &none              &none
             >;
         };
