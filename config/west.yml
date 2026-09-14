@@ -11,7 +11,7 @@ manifest:
   projects:
     - name: zmk
       remote: schmidma
-      revision: 17dfb0a51df7c65139d4b5f52535773f2d6f2003
+      revision: b0536ad4b8bcc6bfa4cffa1c9c238dfaf6d99002
       import: app/west.yml
     - name: zmk-locales
       remote: joelspadin
