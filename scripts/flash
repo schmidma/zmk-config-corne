@@ -1,0 +1,494 @@
+#!/usr/bin/env python3
+"""Flash two validated nice!nano UF2 images, in physical left/right order."""
+
+import argparse
+import errno
+import json
+import os
+import re
+import shutil
+import stat
+import struct
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+FAMILY = 0xADA52840
+START, END = 0x26000, 0xEC000  # nice_nano.dtsi code_partition
+POLL = 0.5
+DISCONNECT_TIMEOUT = 20
+MOUNT_SETTLE_TIMEOUT = 3
+RETURN_TIMEOUT = 5
+USB_DEVICES = Path("/sys/bus/usb/devices")
+REBOOT_ERRNOS = {errno.EIO, errno.ENODEV, errno.ENXIO}
+BOARD_IDS = {"nRF52840-nicenano", "nRF52840-nicenano-v2"}
+
+
+class FlashError(Exception):
+    pass
+
+
+class LateSyncError(FlashError):
+    """All payload bytes were accepted, but final sync/close lost the device."""
+
+
+def load_firmware(path):
+    try:
+        data = Path(path).read_bytes()
+    except OSError as exc:
+        raise FlashError(f"{path}: cannot read firmware: {exc}") from exc
+
+    def invalid(field, index=None):
+        where = f"block {index}: " if index is not None else ""
+        raise FlashError(f"{path}: {where}{field}")
+
+    if not data or len(data) % 512:
+        invalid("UF2 file must contain complete 512-byte blocks")
+    numbers, targets = set(), set()
+    count = None
+    for index in range(len(data) // 512):
+        block = data[index * 512 : (index + 1) * 512]
+        magic1, magic2, flags, address, size, number, total, family = (
+            struct.unpack_from("<8I", block)
+        )
+        if (magic1, magic2, struct.unpack_from("<I", block, 508)[0]) != (
+            0x0A324655,
+            0x9E5D5157,
+            0x0AB16F30,
+        ):
+            invalid("invalid UF2 magic", index)
+        if flags != 0x2000:
+            invalid(
+                f"unsupported UF2 flags 0x{flags:x} (family flag required; no non-flash/container/other flags)",
+                index,
+            )
+        if family != FAMILY:
+            invalid(
+                f"family ID 0x{family:x} is not nice!nano nRF52840 (0x{FAMILY:x})",
+                index,
+            )
+        if size != 256:
+            invalid(f"payload size {size} is not 256 bytes", index)
+        if address % 256 or address < START or address + size > END:
+            invalid(
+                f"target address 0x{address:x} outside/alignment incompatible with application partition [0x{START:x}, 0x{END:x})",
+                index,
+            )
+        if (
+            total != len(data) // 512
+            or not total
+            or (count is not None and total != count)
+        ):
+            invalid(
+                f"block count {total} inconsistent with file ({len(data) // 512})",
+                index,
+            )
+        if number >= total or number in numbers:
+            invalid(f"duplicate/out-of-range block number {number}", index)
+        if address in targets:
+            invalid(f"overlapping target block at 0x{address:x}", index)
+        count = total
+        numbers.add(number)
+        targets.add(address)
+    if numbers != set(range(count)):
+        invalid("incomplete UF2 block numbering")
+    return data
+
+
+def volumes():
+    try:
+        result = subprocess.run(
+            [
+                "lsblk",
+                "--json",
+                "--tree",
+                "--output",
+                "PATH,TRAN,FSTYPE,LABEL,MOUNTPOINTS,SERIAL",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        devices = json.loads(result.stdout)["blockdevices"]
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError) as exc:
+        raise FlashError(f"cannot inspect USB drives with lsblk: {exc}") from exc
+    found = []
+
+    def visit(node, transport=None, serial=None):
+        transport = node.get("tran") or transport
+        serial = node.get("serial") or serial
+        label = node.get("label")
+        if (
+            transport
+            and transport.lower() == "usb"
+            and label
+            and label.upper() == "NICENANO"
+            and (node.get("fstype") or "").lower() in ("vfat", "fat", "fat32", "msdos")
+        ):
+            mounts = node.get("mountpoints") or []
+            if isinstance(mounts, str):
+                mounts = [mounts]
+            found.append(
+                {
+                    "path": node["path"],
+                    "mount": next((m for m in mounts if m), None),
+                    "serial": serial,
+                }
+            )
+        for child in node.get("children") or []:
+            visit(child, transport, serial)
+
+    for device in devices:
+        visit(device)
+    return found
+
+
+def identity(volume):
+    mount = volume["mount"]
+    if not mount or not Path(mount).is_dir() or not os.path.ismount(mount):
+        raise FlashError(
+            "NICENANO is not mounted; mount it in your file manager and retry"
+        )
+    info = Path(mount) / "INFO_UF2.TXT"
+    try:
+        text = info.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise FlashError(
+            f"cannot read {info}: {exc}; confirm the NICENANO drive is mounted"
+        ) from exc
+    fields = {
+        key.strip().lower(): value.strip()
+        for key, value in re.findall(r"^([^:\n]+):\s*(.*?)\s*$", text, re.MULTILINE)
+    }
+    if fields.get("board-id") not in BOARD_IDS or (
+        "model" in fields and fields["model"] != "nice!nano"
+    ):
+        raise FlashError(
+            f"{info}: unexpected Board-ID/Model; expected nice!nano nRF52840 bootloader"
+        )
+
+
+def selected(volume):
+    matches = volumes()
+    if (
+        len(matches) != 1
+        or matches[0]["path"] != volume["path"]
+        or matches[0]["mount"] != volume["mount"]
+    ):
+        raise FlashError(
+            "NICENANO drive changed or another appeared; disconnect extras and retry this half"
+        )
+    current = matches[0]
+    if volume["serial"] and current["serial"] and volume["serial"] != current["serial"]:
+        raise FlashError("NICENANO drive serial changed; retry this half")
+    identity(current)
+    return current
+
+
+def wait_for_drive(previous_serial=None):
+    notice = None
+    while True:
+        matches = volumes()
+        if len(matches) == 1:
+            volume = matches[0]
+            if (
+                previous_serial
+                and volume["serial"]
+                and volume["serial"] == previous_serial
+            ):
+                message = "Same device serial as LEFT; connect the other physical half (serial is best-effort only)."
+            else:
+                if not volume["mount"]:
+                    if not shutil.which("udisksctl"):
+                        raise FlashError(
+                            "NICENANO is unmounted and udisksctl is unavailable; mount NICENANO in your file manager and retry"
+                        )
+                    try:
+                        result = subprocess.run(
+                            [
+                                "udisksctl",
+                                "mount",
+                                "--block-device",
+                                volume["path"],
+                                "--no-user-interaction",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                    except OSError as exc:
+                        raise FlashError(
+                            f"Could not run udisksctl ({exc}); mount NICENANO in your file manager and retry"
+                        ) from exc
+                    # Desktop automount may win the race and make udisksctl fail.
+                    # Trust the verified mount state, not the command's exit status.
+                    deadline = time.monotonic() + MOUNT_SETTLE_TIMEOUT
+                    while True:
+                        current = volumes()
+                        if (
+                            len(current) != 1
+                            or current[0]["path"] != volume["path"]
+                            or (
+                                volume["serial"]
+                                and current[0]["serial"] != volume["serial"]
+                            )
+                        ):
+                            raise FlashError(
+                                "NICENANO drive changed or another appeared while mounting; "
+                                "connect only the requested half and retry"
+                            )
+                        if current[0]["mount"]:
+                            identity(current[0])
+                            return current[0]
+                        if time.monotonic() >= deadline:
+                            detail = (result.stderr or result.stdout or "").strip()
+                            if not detail:
+                                detail = (
+                                    f"udisksctl exited with status {result.returncode}"
+                                )
+                            raise FlashError(
+                                "NICENANO is still unmounted. "
+                                f"Mount it in your file manager and retry. Details: {detail}"
+                            )
+                        time.sleep(POLL)
+                identity(volume)
+                return volume
+        elif len(matches) > 1:
+            message = "Multiple USB NICENANO drives found; leave only the requested physical half connected."
+        else:
+            message = None
+        if message != notice:
+            if message:
+                print(message, flush=True)
+            notice = message
+        time.sleep(POLL)
+
+
+def app_devices():
+    """Read-only sysfs snapshot of connected ZMK Corne USB applications."""
+    found = set()
+    try:
+        entries = list(USB_DEVICES.iterdir())
+    except OSError:
+        return None  # No trustworthy baseline if sysfs cannot be inspected.
+    for entry in entries:
+        try:
+
+            def field(name, entry=entry):
+                return (entry / name).read_text(encoding="utf-8").strip()
+
+            if (
+                field("idVendor"),
+                field("idProduct"),
+                field("manufacturer"),
+                field("product"),
+            ) != ("1d50", "615e", "ZMK Project", "Corne"):
+                continue
+            serial = field("serial")
+            if serial:
+                found.add(serial)
+        except (OSError, UnicodeError):
+            continue  # Interfaces and disappearing devices need not have these attributes.
+    return found
+
+
+def wait_for_app(serial, baseline):
+    if not serial or baseline is None or serial in baseline:
+        return False
+    deadline = time.monotonic() + RETURN_TIMEOUT
+    while True:
+        current = app_devices()
+        if current is not None and serial in current:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(POLL)
+
+
+def transfer(volume, data):
+    selected(volume)  # Recheck device and INFO_UF2.TXT immediately before writing.
+    target = Path(volume["mount"]) / "firmware.uf2"
+    print(
+        f"Detected NICENANO at {volume['mount']} ({volume['path']}). Transferring...",
+        flush=True,
+    )
+    fd = None
+    complete = False
+    failure = None
+    late_error = None
+    try:
+        fd = os.open(
+            target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644
+        )
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("destination is not a regular file")
+        data_view = memoryview(data)
+        offset = 0
+        while offset < len(data_view):
+            written = os.write(fd, data_view[offset:])
+            if written <= 0 or written > len(data_view) - offset:
+                raise OSError("short/invalid write to firmware.uf2")
+            offset += written
+        complete = True
+        os.fsync(fd)
+    except OSError as exc:
+        if complete and exc.errno in REBOOT_ERRNOS:
+            late_error = exc
+        else:
+            failure = exc
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError as exc:
+                if failure is None:
+                    if complete and exc.errno in REBOOT_ERRNOS:
+                        late_error = late_error or exc
+                    else:
+                        failure = exc
+    if failure is not None:
+        raise FlashError(
+            f"Transfer failed or completion uncertain ({failure}). Return this half to bootloader mode before retrying; do not assume it flashed"
+        ) from failure
+    if late_error is not None:
+        raise LateSyncError(
+            f"Final filesystem sync interrupted ({late_error})"
+        ) from late_error
+
+
+def wait_for_disappearance(path):
+    deadline = time.monotonic() + DISCONNECT_TIMEOUT
+    while time.monotonic() < deadline:
+        if not any(v["path"] == path for v in volumes()):
+            return
+        time.sleep(POLL)
+    raise FlashError(
+        "NICENANO did not disappear after transfer; completion is uncertain. Return this half to bootloader mode before retrying"
+    )
+
+
+def confirm_or_retry(hand):
+    print(f"{hand} disconnected after transfer.", file=sys.stderr)
+    print("Its reboot cannot be verified over USB.", file=sys.stderr)
+    if not sys.stdin.isatty():
+        return "q"
+    while True:
+        try:
+            choice = (
+                input(
+                    f"Does the {hand.lower()} half work? [y] Yes / [r] Retry / [q] Quit: "
+                )
+                .strip()
+                .lower()
+            )
+        except EOFError:
+            return "q"
+        if choice in ("y", "r", "q"):
+            return choice
+        print("Choose y, r, or q; Enter does not confirm completion.")
+
+
+def retry_or_quit(error):
+    print(f"Error: {error}", file=sys.stderr)
+    if not sys.stdin.isatty():
+        return False
+    try:
+        return (
+            input("Press Enter to retry this half, or q to quit: ").strip().lower()
+            != "q"
+        )
+    except EOFError:
+        return False
+
+
+def run(left, right):
+    # Read both in full before lsblk, mounting or any other device interaction.
+    images = (load_firmware(left), load_firmware(right))
+    print("Corne flasher")
+    print(f"LEFT:  {Path(left).resolve()}")
+    print(f"RIGHT: {Path(right).resolve()}")
+    print("You choose the physical half; the script cannot identify left versus right.")
+    previous_serial = None
+    for step, (hand, data) in enumerate(zip(("LEFT", "RIGHT"), images), 1):
+        while True:
+            print(f"\n[{step}/2] {hand}", flush=True)
+            print(
+                f"Connect only the {hand.lower()} half and double-tap reset. Waiting for bootloader...",
+                flush=True,
+            )
+            print("Ctrl+C to cancel.", flush=True)
+            try:
+                volume = wait_for_drive(previous_serial)
+                baseline = app_devices()
+                late_error = None
+                try:
+                    transfer(volume, data)
+                except LateSyncError as exc:
+                    late_error = exc
+                if late_error is None:
+                    print(
+                        "Transfer complete. Waiting for bootloader to disconnect...",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "Firmware sent. Checking for reboot...",
+                        flush=True,
+                    )
+                wait_for_disappearance(volume["path"])
+                if late_error is not None:
+                    if wait_for_app(volume["serial"], baseline):
+                        print(
+                            f"[OK] {hand} restarted.",
+                            flush=True,
+                        )
+                    else:
+                        choice = confirm_or_retry(hand)
+                        if choice == "r":
+                            continue
+                        if choice == "q":
+                            return 1
+                        print(
+                            f"[OK] {hand} works (confirmed by you).",
+                            flush=True,
+                        )
+                else:
+                    print(
+                        f"[OK] {hand}: transferred; bootloader disconnected. You can unplug this half.",
+                        flush=True,
+                    )
+            except FlashError as exc:
+                if retry_or_quit(exc):
+                    continue
+                return 1
+            previous_serial = volume["serial"]
+            break
+    print("\nDone. Test both halves together.")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Flash physical LEFT then RIGHT nice!nano halves via USB bootloader (Linux only)."
+    )
+    parser.add_argument("left", help="UF2 image for the physical left half")
+    parser.add_argument("right", help="UF2 image for the physical right half")
+    args = parser.parse_args(argv)
+    if not sys.platform.startswith("linux"):
+        parser.error("this tool requires Linux (lsblk and USB bootloader mounts)")
+    try:
+        return run(args.left, args.right)
+    except FlashError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print(
+            "\nCancelled. If interrupted during transfer, return this half to bootloader mode before retrying.",
+            file=sys.stderr,
+        )
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())
